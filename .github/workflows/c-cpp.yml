@@ -1,3 +1,5 @@
+
+
 name: Build iOS Dylib (Theos Workflow)
 
 on:
@@ -18,20 +20,19 @@ on:
 
 jobs:
   build:
-    name: Build Dynamic Library (.dylib)
     runs-on: macos-14
+    name: Build Dynamic Library (.dylib)
 
     env:
       THEOS: ${{ github.workspace }}/theos
 
     steps:
-      - name: 1. Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: 2. Cache Theos and SDKs
-        id: cache-theos
+      - name: Cache Theos
         uses: actions/cache@v4
         with:
           path: |
@@ -40,9 +41,32 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      - name: 3. Install ldid (only)
+      - name: Install ldid (only)
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           brew update
           brew install ldid
           which ldid
-          ldid --help >/dev/null || true
+
+      - name: Build (Theos)
+        shell: bash
+        run: |
+          set -e
+          echo "Build type: ${{ inputs.build_type || 'release' }}"
+          if [[ "${{ inputs.build_type || 'release' }}" == "debug" ]]; then
+            make clean
+            make package
+          else
+            make clean
+            make package FINALPACKAGE=1
+          fi
+
+      - name: Upload packages (.deb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: theos-packages
+          path: |
+            packages/*.deb
+            .theos/obj/**/*.dylib
+          if-no-files-found: warn
