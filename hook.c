@@ -10,7 +10,6 @@
 #include <sys/mount.h>
 #include <stdlib.h>
 
-// تضمين fishhook من داخل المشروع (تأكد من وجود fishhook.h و fishhook.c)
 #include "fishhook.h"
 
 // ============================================================
@@ -180,12 +179,11 @@ void hook_deinit(void) {
 //                قسم AntiBan (باستخدام fishhook)
 // ============================================================
 
-// --- قيم مزيفة ---
 static const char *fake_model = "iPhone14,2";
 static const char *fake_osversion = "17.4.1";
 static const char *fake_machine = "arm64";
 
-// --- اعتراضات sysctl / uname / statfs ---
+// --- اعتراض sysctlbyname ---
 static int (*orig_sysctlbyname)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
 static int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     if (name && oldp && oldlenp) {
@@ -217,11 +215,13 @@ static int fake_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
     return orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
 }
 
+// --- اعتراض sysctl (القديم) ---
 static int (*orig_sysctl)(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
 static int fake_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     return orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
 }
 
+// --- اعتراض uname ---
 static int (*orig_uname)(struct utsname *);
 static int fake_uname(struct utsname *u) {
     int ret = orig_uname(u);
@@ -234,6 +234,7 @@ static int fake_uname(struct utsname *u) {
     return ret;
 }
 
+// --- اعتراض statfs ---
 static int (*orig_statfs)(const char *, struct statfs *);
 static int fake_statfs(const char *path, struct statfs *buf) {
     int ret = orig_statfs(path, buf);
@@ -247,12 +248,12 @@ static int fake_statfs(const char *path, struct statfs *buf) {
     return ret;
 }
 
-// --- اعتراضات فئات ABase الأمنية (يجب التحقق من الأسماء الصحيحة باستخدام nm) ---
-static void dummy_security_imp() {}
-static void dummy_security_store() {}
-static void dummy_encrypted_json() {}
-static void dummy_encrypted_ini() {}
-static void dummy_log_crypt() {}
+// --- دوال وهمية للفئات الأمنية (مُعلَّقة الآن) ---
+// static void dummy_security_imp() {}
+// static void dummy_security_store() {}
+// static void dummy_encrypted_json() {}
+// static void dummy_encrypted_ini() {}
+// static void dummy_log_crypt() {}
 
 bool hook_antiban_install_syscalls(void) {
     struct rebinding rebindings[] = {
@@ -268,7 +269,10 @@ bool hook_antiban_install_syscalls(void) {
 }
 
 bool hook_antiban_install_security(void) {
-    // الأسماء المُشوَّهة (Mangled names) لفئات ABase – تأكد من صحتها مع لعبتك
+    // تم تعطيلها مؤقتاً حتى يتم الحصول على التوقيعات الحقيقية
+    // لتجنب الكراش الفوري
+    return true; // لا تفعل شيئاً حالياً
+    /*
     struct rebinding rebindings[] = {
         {"_ZN5ABase16SecurityStoreImpE",      (void *)dummy_security_imp,    NULL},
         {"_ZN5ABase13SecurityStoreE",         (void *)dummy_security_store,  NULL},
@@ -280,10 +284,11 @@ bool hook_antiban_install_security(void) {
         return false;
     }
     return true;
+    */
 }
 
 bool hook_antiban_install_all(void) {
     bool ok1 = hook_antiban_install_syscalls();
-    bool ok2 = hook_antiban_install_security();
+    bool ok2 = hook_antiban_install_security(); // آمنة حالياً
     return ok1 && ok2;
 }
