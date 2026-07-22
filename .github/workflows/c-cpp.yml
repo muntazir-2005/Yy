@@ -31,7 +31,7 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
+      # 2. تخزين Theos و SDKs مؤقتاً لتسريع البناء
       - name: 2. Cache Theos and SDKs
         id: cache-theos
         uses: actions/cache@v4
@@ -43,17 +43,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      # 3. إعداد Theos إذا لم يكن موجوداً في الذاكرة المؤقتة
+      # 3. إعداد Theos كاملاً (مع الأدوات المطلوبة مثل dm.pl)
       - name: 3. Setup Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/theos/theos.git $THEOS
+          cd $THEOS
+          git submodule update --init --recursive --depth 1
           # يمكنك إضافة SDK هنا حسب الحاجة، مثال:
           # curl -L -o sdks.zip https://... && unzip sdks.zip -d $THEOS/sdks
 
-      # 4. تثبيت آخر إصدار من ldid
+      # 4. تثبيت آخر إصدار من ldid واستبدال الموجود (إن وجد)
       - name: 4. Install latest ldid
         run: |
+          echo "Downloading latest ldid..."
           LDID_URL=$(curl -s https://api.github.com/repos/ProcursusTeam/ldid/releases/latest | grep "browser_download_url.*ldid_macos_x86_64" | cut -d '"' -f 4)
           if [ -z "$LDID_URL" ]; then
             LDID_URL="https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_macos_x86_64"
@@ -62,7 +65,7 @@ jobs:
           chmod +x ldid
           mkdir -p $THEOS/bin
           mv ldid $THEOS/bin/ldid
-          $THEOS/bin/ldid --version || echo "ldid installed but version check skipped"
+          $THEOS/bin/ldid --version || echo "ldid installed, version check skipped"
 
       # 5. بناء المكتبة الديناميكية
       - name: 5. Build .dylib
