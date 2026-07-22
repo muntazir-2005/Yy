@@ -2,15 +2,15 @@ name: Build iOS Dylib (Theos Workflow)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'نوع البناء (Build Type)'
+        description: "نوع البناء (Build Type)"
         required: true
-        default: 'release'
+        default: "release"
         type: choice
         options:
           - release
@@ -25,13 +25,11 @@ jobs:
       THEOS: ${{ github.workspace }}/theos
 
     steps:
-      # 1. جلب الكود المصدري للمشروع
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
       - name: 2. Cache Theos and SDKs
         id: cache-theos
         uses: actions/cache@v4
@@ -42,10 +40,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      # 3. تثبيت ldid فقط
-      - name: 3. Install ldid
+      - name: 3. Install ldid (only)
         run: |
           brew update
           brew install ldid
           which ldid
-          ldid -v
+          ldid --help >/dev/null || true
