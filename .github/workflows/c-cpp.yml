@@ -1,4 +1,4 @@
-name: Build iOS Dylib (Theos Workflow)
+Name: Build iOS Dylib (Theos Workflow)
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
         with:
           submodules: recursive
 
-      # إضافة ldid هنا فقط
+      # تثبيت أداة ldid لتوقيع الملف
       - name: Install ldid
         run: brew install ldid
 
@@ -45,17 +45,22 @@ jobs:
             ${{ github.workspace }}/theos/sdks
           key: ${{ runner.os }}-theos-${{ hashFiles('**/Makefile') }}
 
+      # 3. تحميل Theos عند عدم توفره في الكاش
       - name: Prepare Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: theos/theos
           path: theos
           submodules: recursive
 
+      # 4. تحميل iOS SDK عند عدم توفره في الكاش
       - name: Set up iOS SDK
+        if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/theos/sdks.git ${{ github.workspace }}/theos/sdks
 
+      # 5. بناء ملف dylib
       - name: Build Dylib
         run: |
           if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
@@ -64,6 +69,7 @@ jobs:
             make FINALPACKAGE=1
           fi
 
+      # 6. رفع ملف dylib الناتج
       - name: Upload Dylib Artifact
         uses: actions/upload-artifact@v4
         with:
