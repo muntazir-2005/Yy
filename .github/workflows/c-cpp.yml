@@ -1,4 +1,4 @@
-name: Build iOS Dylib (Theos Workflow)
+Name: Build iOS Dylib (Theos Workflow)
 
 on:
   push:
@@ -31,22 +31,75 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. تثبيت Theos
-      - name: 2. Install Theos
+      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
+      - name: 2. Cache Theos and SDKs
+        id: cache-theos
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/theos
+            ${{ github.workspace }}/theos/sdks
+          key: ${{ runner.os }}-theos-v2-${{ hashFiles('**/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-theos-v2-
+
+      # 3. إعداد بيئة Theos
+      - name: 3. Setup Theos Environment
         run: |
-          git clone --recursive https://github.com/theos/theos.git $THEOS
-          curl -s https://api.github.com/repos/theos/theos/releases/latest \
-          | grep "browser_download_url.*iphoneos-arm64.*tar.xz" \
-          | cut -d '"' -f 4 \
-          | xargs curl -L -o toolchain.tar.xz
-          mkdir -p $THEOS/toolchain
-          tar -xf toolchain.tar.xz -C $THEOS/toolchain --strip-components=1
-          rm toolchain.tar.xz
+          if [ ! -d "$THEOS" ]; then
+            echo "Cloning Theos repository..."
+            git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          else
+            echo "Theos already exists from cache."
+          fi
 
-      # 3. تثبيت ldid (آخر إصدار)
-      - name: 3. Install ldid
-        run: brew install ldid
+      # 4. تحميل SDKs الخاصة بنظام iOS
+      - name: 4. Download iOS SDKs
+        run: |
+          if [ ! -d "$THEOS/sdks/iPhoneOS16.5.sdk" ] && [ ! -d "$THEOS/sdks/iPhoneOS14.5.sdk" ]; then
+            echo "Downloading iOS SDKs..."
+            git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks
+            mkdir -p "$THEOS/sdks"
+            cp -r /tmp/sdks/*.sdk "$THEOS/sdks/" 2>/dev/null || true
+            rm -rf /tmp/sdks
+          else
+            echo "SDKs already cached."
+          fi
 
-      # 4. بناء المشروع
-      - name: 4. Build Dylib
-        run: make clean package
+      # 4.5 تثبيت أحدث إصدار من ldid
+      - name: Install Latest ldid
+        run: |
+          brew install ldid
+
+      # 5. بناء الملف المصدري وتجميعه (.dylib)
+      - name: 5. Compile Dynamic Library (.dylib)
+        run: |
+          echo "Cleaning existing build files..."
+          make clean
+          
+          echo "Starting compilation process..."
+          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            make DEBUG=1
+          else
+            make FINALPACKAGE=1
+          fi
+
+      # 6. تنظيم واستخراج الملفات المجمّعة
+      - name: 6. Organize Build Artifacts
+        run: |
+          mkdir -p output
+          # نسخ ملفات dylib الناتجة
+          find .theos/obj/ -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
+          # نسخ حزم deb في حال وجودها
+          find packages/ -name "*.deb" -exec cp {} output/ \; 2>/dev/null || true
+          
+          echo "Output files ready:"
+          ls -la output/
+
+      # 7. رفع ملف .dylib النهائي كـ Artifact قابل للتحميل
+      - name: 7. Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-Dylib-Artifacts
+          path: output/
+          retention-days: 7
