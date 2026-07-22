@@ -25,13 +25,13 @@ jobs:
       THEOS: ${{ github.workspace }}/theos
 
     steps:
-      # 1. جلب الكود المصدري للمشروع
+      # 1. جلب الكود المصدري
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2. تخزين Theos و SDKs مؤقتاً لتسريع البناء
+      # 2. تخزين Theos مؤقتاً
       - name: 2. Cache Theos and SDKs
         id: cache-theos
         uses: actions/cache@v4
@@ -43,7 +43,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      # 3. إعداد Theos مع جميع الأدوات المطلوبة (مثل dm.pl)
+      # 3. إعداد Theos كاملاً
       - name: 3. Setup Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
@@ -51,47 +51,56 @@ jobs:
           cd $THEOS
           git submodule update --init --recursive --depth 1
 
-      # 4. تثبيت آخر إصدار حقيقي من ldid (من API مباشرة)
+      # 4. تثبيت آخر إصدار من ldid (باستخدام Python لتحليل JSON)
       - name: 4. Install latest ldid
         run: |
           mkdir -p $THEOS/bin
 
           echo "Fetching latest ldid release info..."
-          # نجلب بيانات آخر إصدار وروابط التحميل
+          # جلب بيانات الإصدار كـ JSON
           RELEASE_JSON=$(curl -sfL https://api.github.com/repos/ProcursusTeam/ldid/releases/latest)
           
           if [ -z "$RELEASE_JSON" ]; then
-            echo "❌ Failed to fetch release data from GitHub API"
+            echo "❌ Failed to fetch release data"
             exit 1
           fi
 
-          # استخراج جميع روابط التحميل التي تنتهي بـ "ldid_macos_" (أي معمارية)
-          LDID_URLS=$(echo "$RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*ldid_macos_[^"]*"' | cut -d'"' -f4)
-
-          if [ -z "$LDID_URLS" ]; then
+          # استخدام Python لاستخراج رابط التحميل المناسب لـ macOS
+          LDID_URL=$(python3 -c "
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    assets = data.get('assets', [])
+    urls = [a['browser_download_url'] for a in assets if 'macos' in a['name'].lower()]
+    if not urls:
+        print('')
+        sys.exit(1)
+    # تفضيل x86_64 إن وجدت
+    for u in urls:
+        if 'x86_64' in u:
+            print(u)
+            sys.exit(0)
+    # وإلا أول رابط macos
+    print(urls[0])
+except Exception as e:
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+          " "$RELEASE_JSON")
+          
+          if [ -z "$LDID_URL" ]; then
             echo "❌ No macOS ldid binary found in the latest release"
             exit 1
           fi
 
-          # تفضيل x86_64 إن وجدت، وإلا أخذ أول رابط (غالباً ARM لـ macos-14)
-          LDID_URL=$(echo "$LDID_URLS" | grep 'x86_64' | head -1)
-          if [ -z "$LDID_URL" ]; then
-            LDID_URL=$(echo "$LDID_URLS" | head -1)
-            echo "⚠️ x86_64 binary not found, falling back to: $LDID_URL"
-          else
-            echo "Found x86_64 binary: $LDID_URL"
-          fi
-
-          echo "Downloading ldid..."
+          echo "Downloading ldid from: $LDID_URL"
           curl -fL -o $THEOS/bin/ldid "$LDID_URL"
           chmod +x $THEOS/bin/ldid
 
-          # التحقق النهائي أنه ثنائي Mach-O حقيقي
+          # التحقق النهائي أنه ثنائي حقيقي
           if file $THEOS/bin/ldid | grep -q 'Mach-O'; then
             echo "✅ ldid binary is valid"
           else
             echo "❌ Downloaded file is not a Mach-O binary!"
-            cat $THEOS/bin/ldid  # طباعة المحتوى للتشخيص
             exit 1
           fi
 
@@ -107,7 +116,7 @@ jobs:
             make package
           fi
 
-      # 6. رفع المخرجات كـ artifact
+      # 6. رفع المخرجات
       - name: 6. Upload .dylib artifact
         uses: actions/upload-artifact@v4
         with:
