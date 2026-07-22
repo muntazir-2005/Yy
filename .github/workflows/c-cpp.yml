@@ -31,37 +31,32 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. تثبيت أداة ldid الضرورية لتوقيع ملف dylib (تجاوز خطأ ldid: command not found)
-      - name: 2. Install ldid
+      # إضافة ldid هنا فقط
+      - name: Install ldid
         run: brew install ldid
 
-      # 3. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
-      - name: 3. Cache Theos and SDKs
+      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
+      - name: 2. Cache Theos and SDKs
         id: cache-theos
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/theos
             ${{ github.workspace }}/theos/sdks
-          key: ${{ runner.os }}-theos-jailed-v3-${{ hashFiles('**/Makefile') }}
+          key: ${{ runner.os }}-theos-${{ hashFiles('**/Makefile') }}
 
-      # 4. تحميل Theos (إذا لم يكن موجوداً في الكاش)
-      - name: 4. Prepare Theos
-        if: steps.cache-theos.outputs.cache-hit != 'true'
+      - name: Prepare Theos
         uses: actions/checkout@v4
         with:
           repository: theos/theos
           path: theos
           submodules: recursive
 
-      # 5. تحميل iOS SDK (إذا لم يكن موجوداً في الكاش)
-      - name: 5. Set up iOS SDK
-        if: steps.cache-theos.outputs.cache-hit != 'true'
+      - name: Set up iOS SDK
         run: |
           git clone https://github.com/theos/sdks.git ${{ github.workspace }}/theos/sdks
 
-      # 6. بناء ملف dylib بناءً على اختيار المستخدم (Release أو Debug)
-      - name: 6. Build Dylib
+      - name: Build Dylib
         run: |
           if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
             make
@@ -69,9 +64,8 @@ jobs:
             make FINALPACKAGE=1
           fi
 
-      # 7. رفع ملف dylib الناتج لتتمكن من تحميله
-      - name: 7. Upload Dylib Artifact
+      - name: Upload Dylib Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyLibyanaPatch-${{ github.event.inputs.build_type || 'release' }}-Dylib
+          name: MyLibyanaPatch-Dylib
           path: .theos/obj/**/*.dylib
