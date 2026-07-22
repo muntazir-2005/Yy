@@ -1,10 +1,17 @@
-#include "hook.h"
-#include "mach_excServer.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <sys/sysctl.h>
+
+// التضمينات الصريحة لمكتبات Mach لمنع أخطاء Implicit Function Declaration
+#include <mach/mach.h>
+#include <mach/mach_port.h>
+#include <mach/task.h>
+#include <mach/thread_act.h>
+#include <mach/vm_map.h>
+
+#include "hook.h"
+#include "mach_excServer.h"
 
 #if __has_include(<ptrauth.h>)
 #include <ptrauth.h>
@@ -24,7 +31,7 @@ static inline uintptr_t strip_pac_bits(uintptr_t ptr) {
 #endif
 }
 
-// implementation لدالة catch_mach_exception_raise_state المطلوبة من mach_excServer.h
+// تنفيذ دالة catch_mach_exception_raise_state المطلوبة من mach_excServer.h
 kern_return_t catch_mach_exception_raise_state(
     mach_port_t exception_port,
     exception_type_t exception,
