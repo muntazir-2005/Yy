@@ -51,30 +51,47 @@ jobs:
           cd $THEOS
           git submodule update --init --recursive --depth 1
 
-      # 4. تثبيت آخر إصدار من ldid (ثنائي حقيقي وآمن)
+      # 4. تثبيت آخر إصدار حقيقي من ldid (من API مباشرة)
       - name: 4. Install latest ldid
         run: |
           mkdir -p $THEOS/bin
 
-          # جلب رابط التحميل من GitHub API
-          LDID_URL=$(curl -sfL https://api.github.com/repos/ProcursusTeam/ldid/releases/latest | \
-            grep -o '"browser_download_url": *"[^"]*ldid_macos_x86_64"' | cut -d'"' -f4)
-
-          # استخدام رابط احتياطي في حال فشل الـ API
-          if [ -z "$LDID_URL" ]; then
-            echo "API failed, using fallback URL"
-            LDID_URL="https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_macos_x86_64"
+          echo "Fetching latest ldid release info..."
+          # نجلب بيانات آخر إصدار وروابط التحميل
+          RELEASE_JSON=$(curl -sfL https://api.github.com/repos/ProcursusTeam/ldid/releases/latest)
+          
+          if [ -z "$RELEASE_JSON" ]; then
+            echo "❌ Failed to fetch release data from GitHub API"
+            exit 1
           fi
 
-          echo "Downloading ldid from: $LDID_URL"
+          # استخراج جميع روابط التحميل التي تنتهي بـ "ldid_macos_" (أي معمارية)
+          LDID_URLS=$(echo "$RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*ldid_macos_[^"]*"' | cut -d'"' -f4)
+
+          if [ -z "$LDID_URLS" ]; then
+            echo "❌ No macOS ldid binary found in the latest release"
+            exit 1
+          fi
+
+          # تفضيل x86_64 إن وجدت، وإلا أخذ أول رابط (غالباً ARM لـ macos-14)
+          LDID_URL=$(echo "$LDID_URLS" | grep 'x86_64' | head -1)
+          if [ -z "$LDID_URL" ]; then
+            LDID_URL=$(echo "$LDID_URLS" | head -1)
+            echo "⚠️ x86_64 binary not found, falling back to: $LDID_URL"
+          else
+            echo "Found x86_64 binary: $LDID_URL"
+          fi
+
+          echo "Downloading ldid..."
           curl -fL -o $THEOS/bin/ldid "$LDID_URL"
           chmod +x $THEOS/bin/ldid
 
-          # التحقق من أن الملف ثنائي حقيقي وليس صفحة خطأ
+          # التحقق النهائي أنه ثنائي Mach-O حقيقي
           if file $THEOS/bin/ldid | grep -q 'Mach-O'; then
-            echo "✅ ldid binary verified"
+            echo "✅ ldid binary is valid"
           else
-            echo "❌ Error: Downloaded ldid is not a valid binary!"
+            echo "❌ Downloaded file is not a Mach-O binary!"
+            cat $THEOS/bin/ldid  # طباعة المحتوى للتشخيص
             exit 1
           fi
 
