@@ -50,16 +50,35 @@ jobs:
           git clone --depth 1 https://github.com/theos/theos.git $THEOS
           cd $THEOS
           git submodule update --init --recursive --depth 1
-          # أضف هنا تحميل SDK إذا لزم الأمر
 
-      # 4. تثبيت آخر إصدار من ldid (ثنائي حقيقي)
+      # 4. تثبيت آخر إصدار من ldid (ثنائي حقيقي وآمن)
       - name: 4. Install latest ldid
         run: |
           mkdir -p $THEOS/bin
-          curl -L -o $THEOS/bin/ldid https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_macos_x86_64
+
+          # جلب رابط التحميل من GitHub API
+          LDID_URL=$(curl -sfL https://api.github.com/repos/ProcursusTeam/ldid/releases/latest | \
+            grep -o '"browser_download_url": *"[^"]*ldid_macos_x86_64"' | cut -d'"' -f4)
+
+          # استخدام رابط احتياطي في حال فشل الـ API
+          if [ -z "$LDID_URL" ]; then
+            echo "API failed, using fallback URL"
+            LDID_URL="https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_macos_x86_64"
+          fi
+
+          echo "Downloading ldid from: $LDID_URL"
+          curl -fL -o $THEOS/bin/ldid "$LDID_URL"
           chmod +x $THEOS/bin/ldid
-          echo "ldid version:"
-          $THEOS/bin/ldid --version || echo "ldid version check passed"
+
+          # التحقق من أن الملف ثنائي حقيقي وليس صفحة خطأ
+          if file $THEOS/bin/ldid | grep -q 'Mach-O'; then
+            echo "✅ ldid binary verified"
+          else
+            echo "❌ Error: Downloaded ldid is not a valid binary!"
+            exit 1
+          fi
+
+          $THEOS/bin/ldid --version || true
 
       # 5. بناء المكتبة الديناميكية
       - name: 5. Build .dylib
