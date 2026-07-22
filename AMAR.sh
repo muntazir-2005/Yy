@@ -1,0 +1,1 @@
+make FINALPACKAGE=1
