@@ -31,15 +31,17 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
-      - name: 2. Cache Theos and SDKs
-        id: cache-theos
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.THEOS }}
-            /Users/runner/theos
-          key: theos-${{ runner.os }}
+      # 2. تثبيت Theos
+      - name: 2. Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          curl -s https://api.github.com/repos/theos/theos/releases/latest \
+          | grep "browser_download_url.*iphoneos-arm64.*tar.xz" \
+          | cut -d '"' -f 4 \
+          | xargs curl -L -o toolchain.tar.xz
+          mkdir -p $THEOS/toolchain
+          tar -xf toolchain.tar.xz -C $THEOS/toolchain --strip-components=1
+          rm toolchain.tar.xz
 
       # 3. تثبيت ldid (آخر إصدار)
       - name: 3. Install ldid
