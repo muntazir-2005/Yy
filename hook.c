@@ -39,7 +39,7 @@ static pthread_t   g_server_thread;
 static atomic_bool g_server_running = false;
 
 // --- المُعالج الوسيط للـ Trampoline (تعطيل / تفعيل النقطة للخيط الحالي) ---
-static void hook_trampoline_handler(int hook_index) {
+__attribute__((used)) static void hook_trampoline_handler(int hook_index) {
     os_unfair_lock_lock(&g_lock);
     if (hook_index < 0 || hook_index >= g_total_registered) {
         os_unfair_lock_unlock(&g_lock);
@@ -131,7 +131,7 @@ static void activate_pending_hooks_locked(void) {
                     g_active_slots[slot] = i;
                     g_hooks[i].active = true;
                     g_hooks[i].slot_index = slot;
-                    return; // نشطنا واحدًا فقط
+                    return;
                 }
             }
         }
@@ -163,9 +163,9 @@ kern_return_t catch_mach_exception_raise_state(
             *new_stateCnt = old_stateCnt;
 
             // وضع hook_index في x0 (__x[0]) للـ Trampoline
-            nstate->__x[0] = i;  // x0 = hook_index
+            nstate->__x[0] = i;
 
-            // تعيين PC إلى glue المُجمَّع (hook_trampoline_glue)
+            // تعيين PC إلى glue المُجمَّع
             extern void hook_trampoline_glue(void);
             arm_thread_state64_set_pc_fptr(*nstate, hook_trampoline_glue);
 
@@ -271,19 +271,14 @@ bool hook_uninstall(void *target) {
     }
     g_total_registered--;
 
-    // إعادة تعيين أرقام السجلات
     for (int slot = 0; slot < MAX_HW_BREAKPOINTS; slot++) {
         int idx = g_active_slots[slot];
-        if (idx >= 0) {
-            if (idx > found_idx) {
-                g_active_slots[slot] = idx - 1;
-            }
+        if (idx >= 0 && idx > found_idx) {
+            g_active_slots[slot] = idx - 1;
         }
     }
 
-    // تفعيل أي اعتراض مُعلق (slot starvation fix)
     activate_pending_hooks_locked();
-
     os_unfair_lock_unlock(&g_lock);
     build_and_apply_debug_state();
     return true;
@@ -297,7 +292,7 @@ bool hook_pause_all(void) {
         int idx = g_active_slots[slot];
         if (idx != -1) {
             ds.__bvr[slot] = g_hooks[idx].target_address;
-            ds.__bcr[slot] = 0x1e4; // تعطيل
+            ds.__bcr[slot] = 0x1e4;
         }
     }
     os_unfair_lock_unlock(&g_lock);
@@ -366,7 +361,6 @@ void hook_deinit(void) {
         usleep(100000);
     }
 
-    // تطبيق حالة خالية على جميع الخيوط لتعطيل جميع نقاط التوقف
     build_and_apply_debug_state();
 
     os_unfair_lock_lock(&g_lock);
