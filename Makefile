@@ -5,15 +5,10 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = MyLibyanaPatch
 
-# جلب ملفات السورس من المسار الرئيسي
-MyLibyanaPatch_FILES = Tweak.xm fishhook.c hook.c mach_excServer.c 
+# كل الملفات المصدرية التي سيتم ترجمتها
+MyLibyanaPatch_FILES = Tweak.xm hook.c fishhook.c
 
-# جلب أي ملفات سورس إضافية من مجلدي SystemCore و ESP
-MyLibyanaPatch_FILES += $(wildcard SystemCore/*.c) $(wildcard SystemCore/*.cpp) $(wildcard SystemCore/*.m) $(wildcard SystemCore/*.mm)
-MyLibyanaPatch_FILES += $(wildcard ESP/*.c) $(wildcard ESP/*.cpp) $(wildcard ESP/*.m) $(wildcard ESP/*.mm)
-
-# إعدادات المترجم: تضمين مجلدي SystemCore و ESP للبحث عن ملفات الترويسة (Headers)
-MyLibyanaPatch_CFLAGS = -fobjc-arc -ISystemCore -IESP
-MyLibyanaPatch_CCFLAGS = -std=c++14 -O2 -ISystemCore -IESP
+MyLibyanaPatch_CFLAGS = -fobjc-arc
+MyLibyanaPatch_CCFLAGS = -std=c++14 -O2
 
 include $(THEOS_MAKE_PATH)/tweak.mk
