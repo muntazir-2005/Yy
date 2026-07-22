@@ -1,30 +1,22 @@
-export THEOS = /var/mobile/theos
+TARGET := iphone:clang:latest:14.0
+ARCHS := arm64 arm64e
 
-# اسم التweak
-TWEAK_NAME = AmmarVIP
-
-# الملفات المصدرية (بلغة C، C++، Objective-C، Objective-C++)
-AmmarVIP_FILES = Tweak.xm
-# أعلام المترجم: تضمين المجلد الحالي، إخفاء الرموز، مستوى التحسين O1
-AmmarVIP_CFLAGS = -I. -fvisibility=hidden -O1
-
-# الأطر المطلوبة
-AmmarVIP_FRAMEWORKS = Foundation UIKit
-
-# البنية المدعومة وإصدار iOS المستهدف
-ARCHS = arm64
-TARGET = iphone:clang:latest:13.0
-
+# تضمين المسار الصحيح لملفات Theos في GitHub Actions
 include $(THEOS)/makefiles/common.mk
+
+TWEAK_NAME = MyLibyanaPatch
+
+# ربط كافة الملفات والمجلدات وتغيير SYS إلى SystemCore لتجنب تعارض النظام
+MyLibyanaPatch_FILES = Tweak.xm \
+                        fishhook.c \
+                        hook.c \
+                        mach_excServer.c \
+                        $(wildcard ESP/*.c ESP/*.cpp ESP/*.m ESP/*.mm) \
+                        $(wildcard SystemCore/*.c SystemCore/*.cpp SystemCore/*.m SystemCore/*.mm)
+
+# تضمين مسارات المجلدات الفرعية والمكتبات (تأكد من تغيير اسم المجلد هنا أيضاً)
+MyLibyanaPatch_CFLAGS = -fobjc-arc -I. -IESP -ISystemCore
+MyLibyanaPatch_LDFLAGS = -undefined dynamic_lookup
+
+# تضمين مسار البناء النهائي الخاص بـ Theos
 include $(THEOS_MAKE_PATH)/tweak.mk
-
-# تنفيذ script تشويش المفاتيح قبل البناء النهائي
-before-package::
-	@echo "[Ammar 2026] تشغيل script تشويش المفاتيح..."
-	@chmod +x ./auto_obfuscate_key.sh
-	@./auto_obfuscate_key.sh
-
-# عرض مسار الـ dylib بعد البناء
-after-package::
-	@echo "[Ammar 2026] تم البناء. الـ dylib جاهز في:"
-	@echo "    $(THEOS_OBJ_DIR)/debug/$(TWEAK_NAME).dylib"
