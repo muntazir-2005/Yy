@@ -1,4 +1,4 @@
-Name: Build iOS Dylib (Theos Workflow)
+name: Build iOS Dylib (Theos Workflow)
 
 on:
   push:
