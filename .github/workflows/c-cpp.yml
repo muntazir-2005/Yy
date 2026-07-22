@@ -1,72 +1,82 @@
-
-
 name: Build iOS Dylib (Theos Workflow)
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: ["main", "master"]
+    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
       build_type:
-        description: "نوع البناء (Build Type)"
+        description: 'نوع البناء (Build Type)'
         required: true
-        default: "release"
+        default: 'release'
         type: choice
         options:
-          - release
-          - debug
+        - release
+        - debug
 
 jobs:
   build:
-    runs-on: macos-14
     name: Build Dynamic Library (.dylib)
+    runs-on: macos-14
 
     env:
       THEOS: ${{ github.workspace }}/theos
 
     steps:
-      - name: Checkout
+      # 1. جلب الكود المصدري للمشروع
+      - name: 1. Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Cache Theos
+      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
+      - name: 2. Cache Theos and SDKs
+        id: cache-theos
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.THEOS }}
-          key: ${{ runner.os }}-theos-${{ hashFiles('.gitmodules') }}
+            ${{ env.THEOS }}/sdks
+          key: ${{ runner.os }}-theos-${{ hashFiles('**/Makefile') }}
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      - name: Install ldid (only)
-        env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+      # 3. إعداد Theos إذا لم يكن موجوداً في الذاكرة المؤقتة
+      - name: 3. Setup Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
-          brew update
-          brew install ldid
-          which ldid
+          git clone --depth 1 https://github.com/theos/theos.git $THEOS
+          # يمكنك إضافة SDK هنا حسب الحاجة، مثال:
+          # curl -L -o sdks.zip https://... && unzip sdks.zip -d $THEOS/sdks
 
-      - name: Build (Theos)
-        shell: bash
+      # 4. تثبيت آخر إصدار من ldid
+      - name: 4. Install latest ldid
         run: |
-          set -e
-          echo "Build type: ${{ inputs.build_type || 'release' }}"
-          if [[ "${{ inputs.build_type || 'release' }}" == "debug" ]]; then
-            make clean
-            make package
+          LDID_URL=$(curl -s https://api.github.com/repos/ProcursusTeam/ldid/releases/latest | grep "browser_download_url.*ldid_macos_x86_64" | cut -d '"' -f 4)
+          if [ -z "$LDID_URL" ]; then
+            LDID_URL="https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_macos_x86_64"
+          fi
+          curl -L -o ldid "$LDID_URL"
+          chmod +x ldid
+          mkdir -p $THEOS/bin
+          mv ldid $THEOS/bin/ldid
+          $THEOS/bin/ldid --version || echo "ldid installed but version check skipped"
+
+      # 5. بناء المكتبة الديناميكية
+      - name: 5. Build .dylib
+        run: |
+          export FINALPACKAGE=1
+          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            make package debug=1
           else
-            make clean
-            make package FINALPACKAGE=1
+            make package
           fi
 
-      - name: Upload packages (.deb)
+      # 6. رفع المخرجات كـ artifact
+      - name: 6. Upload .dylib artifact
         uses: actions/upload-artifact@v4
         with:
-          name: theos-packages
-          path: |
-            packages/*.deb
-            .theos/obj/**/*.dylib
-          if-no-files-found: warn
+          name: compiled-dylib
+          path: packages/*.deb
