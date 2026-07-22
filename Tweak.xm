@@ -6,8 +6,10 @@
 // تعريف دالة تنظيف الكاش للمترجم
 extern "C" void sys_icache_invalidate(void *start, size_t len);
 
-// إرضاء الـ Linker: دالة الهوك القديمة بشكل فارغ تماماً لحل خطأ بناء الـ dylib
 extern "C" void hook(void *target, void *replacement, void **original) {
+    // ... أي كود موجود هنا داخل الأقواس ...
+}
+
     // تركها فارغة تماماً حتى لا تفعل شيئاً ولا تتسبب في كراش أو كشف
 }
 
