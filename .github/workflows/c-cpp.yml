@@ -31,70 +31,47 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
-      - name: 2. Cache Theos and SDKs
+      # 2. تثبيت أداة ldid الضرورية لتوقيع ملف dylib (تجاوز خطأ ldid: command not found)
+      - name: 2. Install ldid
+        run: brew install ldid
+
+      # 3. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
+      - name: 3. Cache Theos and SDKs
         id: cache-theos
         uses: actions/cache@v4
         with:
           path: |
             ${{ github.workspace }}/theos
             ${{ github.workspace }}/theos/sdks
-          key: ${{ runner.os }}-theos-v2-${{ hashFiles('**/Makefile') }}
-          restore-keys: |
-            ${{ runner.os }}-theos-v2-
+          key: ${{ runner.os }}-theos-jailed-v3-${{ hashFiles('**/Makefile') }}
 
-      # 3. إعداد بيئة Theos
-      - name: 3. Setup Theos Environment
-        run: |
-          if [ ! -d "$THEOS" ]; then
-            echo "Cloning Theos repository..."
-            git clone --recursive https://github.com/theos/theos.git "$THEOS"
-          else
-            echo "Theos already exists from cache."
-          fi
+      # 4. تحميل Theos (إذا لم يكن موجوداً في الكاش)
+      - name: 4. Prepare Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: theos/theos
+          path: theos
+          submodules: recursive
 
-      # 4. تحميل SDKs الخاصة بنظام iOS
-      - name: 4. Download iOS SDKs
+      # 5. تحميل iOS SDK (إذا لم يكن موجوداً في الكاش)
+      - name: 5. Set up iOS SDK
+        if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
-          if [ ! -d "$THEOS/sdks/iPhoneOS16.5.sdk" ] && [ ! -d "$THEOS/sdks/iPhoneOS14.5.sdk" ]; then
-            echo "Downloading iOS SDKs..."
-            git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks
-            mkdir -p "$THEOS/sdks"
-            cp -r /tmp/sdks/*.sdk "$THEOS/sdks/" 2>/dev/null || true
-            rm -rf /tmp/sdks
-          else
-            echo "SDKs already cached."
-          fi
+          git clone https://github.com/theos/sdks.git ${{ github.workspace }}/theos/sdks
 
-      # 5. بناء الملف المصدري وتجميعه (.dylib)
-      - name: 5. Compile Dynamic Library (.dylib)
+      # 6. بناء ملف dylib بناءً على اختيار المستخدم (Release أو Debug)
+      - name: 6. Build Dylib
         run: |
-          echo "Cleaning existing build files..."
-          make clean
-          
-          echo "Starting compilation process..."
-          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
-            make DEBUG=1
+          if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
+            make
           else
             make FINALPACKAGE=1
           fi
 
-      # 6. تنظيم واستخراج الملفات المجمّعة
-      - name: 6. Organize Build Artifacts
-        run: |
-          mkdir -p output
-          # نسخ ملفات dylib الناتجة
-          find .theos/obj/ -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
-          # نسخ حزم deb في حال وجودها
-          find packages/ -name "*.deb" -exec cp {} output/ \; 2>/dev/null || true
-          
-          echo "Output files ready:"
-          ls -la output/
-
-      # 7. رفع ملف .dylib النهائي كـ Artifact قابل للتحميل
-      - name: 7. Upload Build Artifacts
+      # 7. رفع ملف dylib الناتج لتتمكن من تحميله
+      - name: 7. Upload Dylib Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iOS-Dylib-Artifacts
-          path: output/
-          retention-days: 7
+          name: MyLibyanaPatch-${{ github.event.inputs.build_type || 'release' }}-Dylib
+          path: .theos/obj/**/*.dylib
