@@ -8,10 +8,10 @@ extern "C" void sys_icache_invalidate(void *start, size_t len);
 
 extern "C" void hook(void *target, void *replacement, void **original) 
     // ... أي كود موجود هنا داخل الأقواس ...
-}
+
 
     // تركها فارغة تماماً حتى لا تفعل شيئاً ولا تتسبب في كراش أو كشف
-}
+
 
 // دالات الأنتبان الفارغة الخاصة بك (تم الاحتفاظ بها دون إتلاف)
 void _antiban1(void *_this) { return; }
