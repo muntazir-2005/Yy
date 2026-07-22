@@ -31,14 +31,16 @@ static bool g_paused = false;
 static os_unfair_lock g_lock = OS_UNFAIR_LOCK_INIT;
 
 static int find_index(_Atomic(void*) *slot) {
-    for (int i = 0; i < g_count; i++)
+    for (int i = 0; i < g_count; i++) {
         if (g_hooks[i].slot == slot) return i;
+    }
     return -1;
 }
 
 static bool is_replacement_of_another_hook(void *candidate) {
-    for (int i = 0; i < g_count; i++)
+    for (int i = 0; i < g_count; i++) {
         if (g_hooks[i].active && g_hooks[i].repl == candidate) return true;
+    }
     return false;
 }
 
@@ -92,22 +94,92 @@ bool hook_install(void *slot, void *replacement, void **original_out) {
     return true;
 }
 
-// (باقي دوال Function Table كما هي: hook_uninstall, hook_is_installed, ...)
-// ... أختصرها هنا للاختصار، لكنها موجودة في النسخة الكاملة ...
+bool hook_uninstall(void *slot) {
+    if (!slot) return false;
+    _Atomic(void*) *atomic_slot = (_Atomic(void*)*)slot;
 
-bool hook_uninstall(void *slot) { /* ... */ }
-bool hook_is_installed(void *slot) { /* ... */ }
-bool hook_is_active(void *slot) { /* ... */ }
-int hook_count(void) { return g_count; }
-bool hook_pause_all(void) { /* ... */ }
-bool hook_resume_all(void) { /* ... */ }
-void hook_deinit(void) { /* ... */ }
+    os_unfair_lock_lock(&g_lock);
+    int idx = find_index(atomic_slot);
+    if (idx < 0) {
+        os_unfair_lock_unlock(&g_lock);
+        return false;
+    }
+
+    void *current = atomic_load_explicit(atomic_slot, memory_order_acquire);
+    if (current == g_hooks[idx].repl) {
+        atomic_store_explicit(atomic_slot, g_hooks[idx].orig, memory_order_release);
+    }
+    g_hooks[idx] = g_hooks[--g_count];
+    os_unfair_lock_unlock(&g_lock);
+    return true;
+}
+
+bool hook_is_installed(void *slot) {
+    if (!slot) return false;
+    _Atomic(void*) *atomic_slot = (_Atomic(void*)*)slot;
+    os_unfair_lock_lock(&g_lock);
+    int idx = find_index(atomic_slot);
+    bool result = (idx >= 0);
+    os_unfair_lock_unlock(&g_lock);
+    return result;
+}
+
+bool hook_is_active(void *slot) {
+    if (!slot) return false;
+    _Atomic(void*) *atomic_slot = (_Atomic(void*)*)slot;
+    os_unfair_lock_lock(&g_lock);
+    int idx = find_index(atomic_slot);
+    bool result = (idx >= 0) && g_hooks[idx].active && !g_paused;
+    os_unfair_lock_unlock(&g_lock);
+    return result;
+}
+
+int hook_count(void) {
+    os_unfair_lock_lock(&g_lock);
+    int c = g_count;
+    os_unfair_lock_unlock(&g_lock);
+    return c;
+}
+
+bool hook_pause_all(void) {
+    os_unfair_lock_lock(&g_lock);
+    g_paused = true;
+    for (int i = 0; i < g_count; i++) {
+        atomic_store_explicit(g_hooks[i].slot, g_hooks[i].orig, memory_order_release);
+        g_hooks[i].active = false;
+    }
+    os_unfair_lock_unlock(&g_lock);
+    return true;
+}
+
+bool hook_resume_all(void) {
+    os_unfair_lock_lock(&g_lock);
+    g_paused = false;
+    for (int i = 0; i < g_count; i++) {
+        atomic_store_explicit(g_hooks[i].slot, g_hooks[i].repl, memory_order_release);
+        g_hooks[i].active = true;
+    }
+    os_unfair_lock_unlock(&g_lock);
+    return true;
+}
+
+void hook_deinit(void) {
+    os_unfair_lock_lock(&g_lock);
+    for (int i = 0; i < g_count; i++) {
+        void *current = atomic_load_explicit(g_hooks[i].slot, memory_order_acquire);
+        if (current == g_hooks[i].repl) {
+            atomic_store_explicit(g_hooks[i].slot, g_hooks[i].orig, memory_order_release);
+        }
+    }
+    g_count = 0;
+    g_paused = false;
+    os_unfair_lock_unlock(&g_lock);
+}
 
 // ============================================================
 //        قسم Symbol Hooking الآمن (بديل fishhook)
 // ============================================================
 
-// إزالة بتات PAC من مؤشر
 static inline void *strip_pac_ptr(void *ptr) {
 #if defined(__arm64e__)
     return ptrauth_strip(ptr, ptrauth_key_asia);
@@ -116,80 +188,66 @@ static inline void *strip_pac_ptr(void *ptr) {
 #endif
 }
 
-// دالة لاعتراض دالة C معينة عن طريق رمزها
-// تعمل مثل rebind_symbols لكن آمنة وتفحص الوجود
 static bool hook_c_symbol(const char *symbol, void *replacement, void **original) {
     if (!symbol || !replacement || !original) return false;
 
-    // البحث عن الرمز في المكتبات المحملة
     void *addr = dlsym(RTLD_DEFAULT, symbol);
-    if (!addr) return false; // الرمز غير موجود، لا نحاول
+    if (!addr) return false;
 
-    // إزالة PAC إذا كان ARM64e
     addr = strip_pac_ptr(addr);
 
-    // نحتاج للوصول إلى مؤشر الرمز في __DATA,__la_symbol_ptr
-    // نستخدم _dyld API للعثور على مؤشر الرمز غير المباشر
+    Dl_info info;
+    if (dladdr(addr, &info) == 0) return false;
+
+    // نفحص فقط الصورة التي تحوي الدالة
+    uint32_t image_idx = UINT32_MAX;
     uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; i++) {
-        const struct mach_header *header = _dyld_get_image_header(i);
-        if (!header) continue;
-
-        // نبحث في هذا الملف عن العنوان الذي يطابق addr
-        const char *image_name = _dyld_get_image_name(i);
-        void *symbol_ptr = NULL;
-
-        // نحتاج إلى استخدام dlsym مرة أخرى للحصول على المؤشر الحقيقي القابل للتخزين (indirect pointer)
-        // لكن هذا معقد. سنستخدم طريقة أبسط: نعثر على القيمة المخزنة حالياً في __la_symbol_ptr
-        // عبر استخدام symbol_ptr = dlsym(RTLD_SELF, symbol) لكن هذا يعيد نفس العنوان.
-        // لذلك نستخدم آلية "Atomic exchange" على المؤشر الذي نعرفه من عنوان المقطع.
-        // هنا سنبسط ونفترض أن التطبيق مرتبط بالرمز المطلوب، ونبحث يدويًا.
-
-        // الحل المبسط: نفحص جميع مقاطع البيانات في الصورة بحثًا عن عنوان مطابق.
-        if (header->magic == MH_MAGIC_64 || header->magic == MH_CIGAM_64) {
-            struct mach_header_64 *mh = (struct mach_header_64 *)header;
-            struct load_command *lc = (struct load_command *)(mh + 1);
-            for (uint32_t j = 0; j < mh->ncmds; j++) {
-                if (lc->cmd == LC_SEGMENT_64) {
-                    struct segment_command_64 *seg = (struct segment_command_64 *)lc;
-                    if (strcmp(seg->segname, "__DATA") == 0) {
-                        // نبحث في sections
-                        struct section_64 *sect = (struct section_64 *)(seg + 1);
-                        for (uint32_t k = 0; k < seg->nsects; k++) {
-                            if (strcmp(sect->sectname, "__la_symbol_ptr") == 0) {
-                                uintptr_t base = (uintptr_t)_dyld_get_image_vmaddr_slide(i) + sect->addr;
-                                size_t size = sect->size;
-                                void **pointers = (void **)base;
-                                size_t num = size / sizeof(void*);
-                                for (size_t p = 0; p < num; p++) {
-                                    if (strip_pac_ptr(pointers[p]) == addr) {
-                                        // وجدنا المؤشر غير المباشر!
-                                        symbol_ptr = &pointers[p];
-                                        break;
-                                    }
-                                }
-                                if (symbol_ptr) break;
-                            }
-                            sect++;
-                        }
-                    }
-                }
-                lc = (struct load_command *)((uint8_t *)lc + lc->cmdsize);
-            }
-        }
-        if (symbol_ptr) {
-            // استبدال المؤشر بقفل ذري
-            void *old_val = atomic_exchange_explicit((_Atomic(void*)*)symbol_ptr, replacement, memory_order_acq_rel);
-            *original = old_val;
-            return true;
+        if (_dyld_get_image_header(i) == info.dli_fbase) {
+            image_idx = i;
+            break;
         }
     }
+    if (image_idx == UINT32_MAX) return false;
 
-    return false; // لم نجد المؤشر
+    const struct mach_header_64 *header = (const struct mach_header_64 *)info.dli_fbase;
+    struct load_command *lc = (struct load_command *)(header + 1);
+    intptr_t slide = _dyld_get_image_vmaddr_slide(image_idx);
+
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        if (lc->cmd == LC_SEGMENT_64) {
+            struct segment_command_64 *seg = (struct segment_command_64 *)lc;
+            if (strcmp(seg->segname, "__DATA") == 0) {
+                struct section_64 *sect = (struct section_64 *)(seg + 1);
+                for (uint32_t j = 0; j < seg->nsects; j++) {
+                    if (strcmp(sect->sectname, "__la_symbol_ptr") == 0) {
+                        uintptr_t base = slide + sect->addr;
+                        size_t num = sect->size / sizeof(void*);
+                        void **pointers = (void **)base;
+                        for (size_t k = 0; k < num; k++) {
+                            void *candidate = pointers[k];
+                            if (strip_pac_ptr(candidate) == addr) {
+                                // وجدنا المؤشر: استبدله
+                                void *old = atomic_exchange_explicit(
+                                    (_Atomic(void*)*)&pointers[k], replacement,
+                                    memory_order_acq_rel);
+                                *original = old;
+                                return true;
+                            }
+                        }
+                    }
+                    sect++;
+                }
+            }
+        }
+        lc = (struct load_command *)((uint8_t *)lc + lc->cmdsize);
+    }
+
+    return false;
 }
 
 // ============================================================
-//                دوال AntiBan (باستخدام Symbol Hooking الجديد)
+//                دوال AntiBan (باستخدام hook_c_symbol)
 // ============================================================
 
 static const char *fake_model = "iPhone14,2";
@@ -265,7 +323,8 @@ bool hook_antiban_install_syscalls(void) {
 }
 
 bool hook_antiban_install_security(void) {
-    return true; // لم تُفعّل حتى نحصل على التواقيع
+    // معطلة مؤقتاً لحين استخراج التوقيعات الصحيحة
+    return true;
 }
 
 bool hook_antiban_install_all(void) {
