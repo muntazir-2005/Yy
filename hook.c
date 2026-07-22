@@ -87,9 +87,9 @@ bool hook(void *old[], void *new[], int count) {
 		sysctlbyname("hw.optional.breakpoint", &breakpoints, &size, NULL, 0); // usually 6
 		
 		// enable exception handler
-		mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &server) != KERN_SUCCESS;
-		mach_port_insert_right(mach_task_self(), server, server, MACH_MSG_TYPE_MAKE_SEND) != KERN_SUCCESS;
-		task_set_exception_ports(mach_task_self(), EXC_MASK_BREAKPOINT, server, EXCEPTION_STATE | MACH_EXCEPTION_CODES, ARM_THREAD_STATE64) != KERN_SUCCESS;
+		mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &server); 
+        mach_port_insert_right(mach_task_self(), server, server, MACH_MSG_TYPE_MAKE_SEND); 
+        task_set_exception_ports(mach_task_self(), EXC_MASK_BREAKPOINT, server, EXCEPTION_STATE | MACH_EXCEPTION_CODES, ARM_THREAD_STATE64);
 		
 		pthread_t thread;
 		pthread_create(&thread, NULL, exception_handler, NULL);
