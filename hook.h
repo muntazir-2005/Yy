@@ -1,16 +1,28 @@
-#ifndef hook_h
-#define hook_h
+#ifndef HOOK_H
+#define HOOK_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <mach/mach.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdbool.h>
+// تعريف عدد الـ Hooks
+#ifndef MAX_HW_HOOKS
+#define MAX_HW_HOOKS 6
+#endif
 
-bool hook(void *o[], void *n[], int c);
+struct hook_info {
+    uintptr_t target_address;
+    uintptr_t replacement_address;
+};
+
+bool hook_install(void *targets[], void *replacements[], int count);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* hook_h */
+#endif // HOOK_H
