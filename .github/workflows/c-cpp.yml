@@ -1,4 +1,4 @@
-Name: Build iOS Dylib (Theos Workflow)
+name: Build iOS Dylib (Theos Workflow)
 
 on:
   push:
@@ -13,8 +13,8 @@ on:
         default: 'release'
         type: choice
         options:
-        - release
-        - debug
+          - release
+          - debug
 
 jobs:
   build:
@@ -31,47 +31,21 @@ jobs:
         with:
           submodules: recursive
 
-      # تثبيت أداة ldid لتوقيع الملف
-      - name: Install ldid
-        run: brew install ldid
-
       # 2. تسريع عملية البناء عن طريق تخزين Theos و SDKs مؤقتاً
       - name: 2. Cache Theos and SDKs
         id: cache-theos
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/theos
-            ${{ github.workspace }}/theos/sdks
-          key: ${{ runner.os }}-theos-${{ hashFiles('**/Makefile') }}
+            ${{ env.THEOS }}
+          key: ${{ runner.os }}-theos-${{ hashFiles('.gitmodules') }}
+          restore-keys: |
+            ${{ runner.os }}-theos-
 
-      # 3. تحميل Theos عند عدم توفره في الكاش
-      - name: Prepare Theos
-        if: steps.cache-theos.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: theos/theos
-          path: theos
-          submodules: recursive
-
-      # 4. تحميل iOS SDK عند عدم توفره في الكاش
-      - name: Set up iOS SDK
-        if: steps.cache-theos.outputs.cache-hit != 'true'
+      # 3. تثبيت ldid فقط
+      - name: 3. Install ldid
         run: |
-          git clone https://github.com/theos/sdks.git ${{ github.workspace }}/theos/sdks
-
-      # 5. بناء ملف dylib
-      - name: Build Dylib
-        run: |
-          if [ "${{ github.event.inputs.build_type }}" == "debug" ]; then
-            make
-          else
-            make FINALPACKAGE=1
-          fi
-
-      # 6. رفع ملف dylib الناتج
-      - name: Upload Dylib Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MyLibyanaPatch-Dylib
-          path: .theos/obj/**/*.dylib
+          brew update
+          brew install ldid
+          which ldid
+          ldid -v
