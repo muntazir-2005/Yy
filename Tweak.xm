@@ -1,11 +1,7 @@
 #import "hook.h"
 
-%ctor {
-    // تهيئة نظام التوجيه الداخلي (Function Table)
+__attribute__((constructor))
+static void tweak_initialize(void) {
     hook_init();
-
-    // تفعيل كل طبقات AntiBan مرة واحدة:
-    // - اعتراض sysctl / uname / statfs
-    // - تعطيل فئات الأمان ABase (SecurityStore, EncryptedJson, LogCrypt)
     hook_antiban_install_all();
 }
