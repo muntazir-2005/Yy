@@ -6,7 +6,7 @@
 // تعريف دالة تنظيف الكاش للمترجم
 extern "C" void sys_icache_invalidate(void *start, size_t len);
 
-extern "C" void hook(void *target, void *replacement, void **original) {
+extern "C" void hook(void *target, void *replacement, void **original) 
     // ... أي كود موجود هنا داخل الأقواس ...
 }
 
