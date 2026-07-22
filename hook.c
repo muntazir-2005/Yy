@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include <sys/mman.h>
-#include <libkern/OSCacheControl.h> // sys_icache_invalidate
+#include <libkern/OSCacheControl.h>
 
 #include "mach_excServer.h"
 
@@ -63,7 +63,7 @@ static void hook_trampoline_handler(int hook_index) {
     mach_port_deallocate(mach_task_self(), cur_thread);
     os_unfair_lock_unlock(&g_lock);
 
-    // استدعاء الدالة البديلة (المُؤشر الأصلي المُوقَّع)
+    // استدعاء الدالة البديلة (بالمؤشر الأصلي المُوقَّع)
     void (*replacement)(void) = (void(*)(void))hook->replacement_ptr;
     replacement();
 
@@ -162,14 +162,11 @@ kern_return_t catch_mach_exception_raise_state(
             *nstate = *ostate;
             *new_stateCnt = old_stateCnt;
 
-            // نُعِدُّ المُعامِلات لاستدعاء hook_trampoline_handler مباشرة
-            // عبر تعيين PC إلى دالة glue (مُعرَّفة في ملف تجميع منفصل أو عبر تحايل)
-            // لكن لتبسيط التنفيذ دون ملف asm خارجي، نستخدم استدعاء C مباشر:
-            // سنُعِد x0 ليكون hook_index، و x30 كعنوان العودة، ثم نضع PC = hook_trampoline_handler
-            // لكن هذا سيسبب مشكلة في التوافق مع اتفاقية الاستدعاء. الحل العملي:
-            // سنُعرِّف دالة trampoline_entry في كود C باستخدام __attribute__((naked)) إن أمكن.
-            extern void hook_trampoline_glue(void); // يفترض وجودها
-            arm_thread_state64_set_reg(*nstate, 0, i); // x0 = hook_index
+            // وضع hook_index في x0 (__x[0]) للـ Trampoline
+            nstate->__x[0] = i;  // x0 = hook_index
+
+            // تعيين PC إلى glue المُجمَّع (hook_trampoline_glue)
+            extern void hook_trampoline_glue(void);
             arm_thread_state64_set_pc_fptr(*nstate, hook_trampoline_glue);
 
             os_unfair_lock_unlock(&g_lock);
@@ -180,14 +177,17 @@ kern_return_t catch_mach_exception_raise_state(
     return KERN_FAILURE;
 }
 
-// الدوال الإضافية
+// الدوال الإضافية الإلزامية
 kern_return_t catch_mach_exception_raise(
     mach_port_t exception_port,
     mach_port_t thread,
     mach_port_t task,
     exception_type_t exception,
     mach_exception_data_t code,
-    mach_msg_type_number_t codeCnt) { return KERN_FAILURE; }
+    mach_msg_type_number_t codeCnt) {
+    (void)exception_port; (void)thread; (void)task; (void)exception; (void)code; (void)codeCnt;
+    return KERN_FAILURE;
+}
 
 kern_return_t catch_mach_exception_raise_state_identity(
     mach_port_t exception_port,
@@ -200,10 +200,15 @@ kern_return_t catch_mach_exception_raise_state_identity(
     thread_state_t old_state,
     mach_msg_type_number_t old_stateCnt,
     thread_state_t new_state,
-    mach_msg_type_number_t *new_stateCnt) { return KERN_FAILURE; }
+    mach_msg_type_number_t *new_stateCnt) {
+    (void)exception_port; (void)thread; (void)task; (void)exception; (void)code; (void)codeCnt;
+    (void)flavor; (void)old_state; (void)old_stateCnt; (void)new_state; (void)new_stateCnt;
+    return KERN_FAILURE;
+}
 
 // خيط الخادم
 static void *exception_server_thread(void *arg) {
+    (void)arg;
     mach_msg_server(mach_exc_server,
                     sizeof(union __RequestUnion__catch_mach_exc_subsystem),
                     g_exc_port,
@@ -296,7 +301,7 @@ bool hook_pause_all(void) {
         }
     }
     os_unfair_lock_unlock(&g_lock);
-    // تطبيق...
+
     thread_act_array_t ths;
     mach_msg_type_number_t cnt;
     if (task_threads(mach_task_self(), &ths, &cnt) == KERN_SUCCESS) {
@@ -315,7 +320,6 @@ bool hook_resume_all(void) {
 }
 
 bool hook_init(void) {
-    // فحص وجود مُصحح أخطاء
     int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
     struct kinfo_proc info;
     size_t size = sizeof(info);
@@ -362,8 +366,8 @@ void hook_deinit(void) {
         usleep(100000);
     }
 
-    arm_debug_state64_t clean_state = {0};
-    build_and_apply_debug_state(); // سيطبق الحالة الفارغة
+    // تطبيق حالة خالية على جميع الخيوط لتعطيل جميع نقاط التوقف
+    build_and_apply_debug_state();
 
     os_unfair_lock_lock(&g_lock);
     memset(g_hooks, 0, sizeof(g_hooks));
